@@ -1,0 +1,70 @@
+
+name: Deploy Commercial Bank Game
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: github-pages
+  cancel-in-progress: true
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Configure GitHub Pages
+        uses: actions/configure-pages@v5
+
+      - name: Prepare website
+        env:
+          FIREBASE_WEB_CONFIG: ${{ secrets.FIREBASE_WEB_CONFIG }}
+        run: |
+          mkdir -p _site
+          cp index.html admin.html student.js admin.js shared.js styles.css _site/
+          touch _site/.nojekyll
+
+          python3 - <<'PY'
+          import json, os, pathlib
+
+          raw = os.environ.get('FIREBASE_WEB_CONFIG', '')
+          if not raw:
+              raise SystemExit('Missing FIREBASE_WEB_CONFIG secret.')
+
+          obj = json.loads(raw)
+          names = ('apiKey', 'authDomain', 'projectId',
+                   'storageBucket', 'messagingSenderId', 'appId')
+
+          if any(not isinstance(obj.get(k), str) or not obj[k] for k in names):
+              raise SystemExit('Missing Firebase configuration values.')
+
+          if obj['projectId'] != 'commercial-bank-reihan-2026':
+              raise SystemExit('Wrong Firebase project.')
+
+          pathlib.Path('_site/config.js').write_text(
+              'export const firebaseConfig = ' +
+              json.dumps({k: obj[k] for k in names}) + ';\n'
+          )
+          PY
+
+      - name: Upload Pages artifact
+        uses: actions/upload-pages-artifact@v4
+        with:
+          path: _site
+
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4
